@@ -29,7 +29,7 @@ HEADERS_MAP = {
     'X-Mailgun-Track': ('o:tracking', lambda x: x),
     'X-Mailgun-Track-Clicks': ('o:tracking-clicks', lambda x: x),
     'X-Mailgun-Track-Opens': ('o:tracking-opens', lambda x: x),
-    'X-Mailgun-Variables': ('v:my-var', lambda x: x),
+    'X-Mailgun-Variables': lambda (v, k): (('v:%s' % v), k)
 }
 
 
@@ -84,10 +84,13 @@ class MailgunBackend(BaseEmailBackend):
         for smtp_key, api_transformer in six.iteritems(self._headers_map):
             data_to_transform = email_message.extra_headers.pop(smtp_key, None)
             if data_to_transform is not None:
-                if type(data_to_transform) in (list, tuple):
+                if isinstance(data_to_transform, (list, tuple)):
                     # map each value in the tuple/list
                     for data in data_to_transform:
                         api_data.append((api_transformer[0], api_transformer[1](data)))
+                elif isinstance(data_to_transform, dict):
+                    for data in data_to_transform.iteritems():
+                        api_data.append(api_transformer(data))
                 else:
                     # we only have one value
                     api_data.append((api_transformer[0], api_transformer[1](data_to_transform)))
@@ -98,13 +101,19 @@ class MailgunBackend(BaseEmailBackend):
         if not email_message.recipients():
             return False
         from_email = sanitize_address(email_message.from_email, email_message.encoding)
-        recipients = [sanitize_address(addr, email_message.encoding)
-                      for addr in email_message.recipients()]
+
+        to_recipients = [sanitize_address(addr, email_message.encoding)
+                      for addr in email_message.to]
 
         try:
-
             post_data = []
-            post_data.append(('to', (",".join(recipients)),))
+            post_data.append(('to', (",".join(to_recipients)),))
+            if email_message.bcc:
+                bcc_recipients = [sanitize_address(addr, email_message.encoding) for addr in email_message.bcc]
+                post_data.append(('bcc', (",".join(bcc_recipients)),))
+            if email_message.cc:
+                cc_recipients = [sanitize_address(addr, email_message.encoding) for addr in email_message.cc]
+                post_data.append(('cc', (",".join(cc_recipients)),))
             post_data.append(('text', email_message.body,))
             post_data.append(('subject', email_message.subject,))
             post_data.append(('from', from_email,))
